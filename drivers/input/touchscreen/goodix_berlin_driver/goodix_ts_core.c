@@ -1109,6 +1109,9 @@ static int goodix_parse_dt(struct device_node *node,
 				sizeof(board_data->cfg_bin_name));
 	}
 
+	board_data->support_thp_fw = of_property_read_bool(node,
+					"goodix,support-thp-fw");
+
 	/* get xyz resolutions */
 	r = goodix_parse_dt_resolution(node, board_data);
 	if (r) {
@@ -1868,6 +1871,8 @@ out:
 	hw_ops->irq_enable(core_data, true);
 	/* open esd */
 	goodix_ts_blocking_notify(NOTIFY_RESUME, NULL);
+	if (core_data->board_data.support_thp_fw)
+		core_data->hw_ops->set_coor_mode(core_data);
 	ts_info("Resume end");
 	return 0;
 }
@@ -2159,6 +2164,9 @@ upgrade:
 		goto uninit_fw;
 	}
 	cd->init_stage = CORE_INIT_STAGE2;
+
+	if (cd->board_data.support_thp_fw)
+		cd->hw_ops->set_coor_mode(cd);
 
 	return 0;
 
