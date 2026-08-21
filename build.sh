@@ -86,6 +86,10 @@ case "$TARGET" in
         DTB_WILDCARD="ukee"
         DTBO_WILDCARD="marble-sm7475-pm8008-overlay"
         ;;
+    "mondrian" )
+        DTB_WILDCARD="cape"
+        DTBO_WILDCARD="mondrian-sm8475-pm8008-overlay"
+        ;;
     "cupid" )
         DTB_WILDCARD="waipio"
         DTBO_WILDCARD="cupid-sm8450-pm8008-overlay"
