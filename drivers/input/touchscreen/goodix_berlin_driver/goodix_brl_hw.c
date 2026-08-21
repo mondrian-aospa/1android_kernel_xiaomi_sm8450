@@ -1479,6 +1479,47 @@ exit:
 	return ret;
 }
 
+#define GOODIX_BRLD_CMD_RAWDATA 0x90
+#define GOODIX_BRLD_CMD_COORD 0x91
+static int brl_set_coor_mode(struct goodix_ts_core *cd)
+{
+	struct goodix_ts_cmd cmd;
+	int ret = 0;
+
+	if (cd->bus->ic_type != IC_TYPE_BERLIN_D)
+		return ret;
+
+	ts_debug("brld_set_coor_mode, init_stage: %d", cd->init_stage);
+
+	if (cd->init_stage < CORE_INIT_STAGE2)
+		goto exit;
+
+	/* Disable rawdata mode */
+	cmd.cmd = GOODIX_BRLD_CMD_RAWDATA;
+	cmd.data[0] = 0;
+	cmd.len = 5;
+	ret = cd->hw_ops->send_cmd(cd, &cmd);
+	if (ret < 0) {
+		ts_err("could not disable rawdata mode, err %d", ret);
+		goto exit;
+	}
+
+	/* Enable coor mode */
+	cmd.cmd = GOODIX_BRLD_CMD_COORD;
+	cmd.data[0] = 0x81;
+	cmd.len = 5;
+	ret = cd->hw_ops->send_cmd(cd, &cmd);
+	if (ret < 0) {
+		ts_err("could not enable coor mode, err: %d", ret);
+		goto exit;
+	}
+
+	ts_info("successfully enabled coor mode");
+
+exit:
+	return ret;
+}
+
 static struct goodix_ts_hw_ops brl_hw_ops = {
 	.power_on = brl_power_on,
 	.resume = brl_resume,
@@ -1489,6 +1530,7 @@ static struct goodix_ts_hw_ops brl_hw_ops = {
 	.read = brl_read,
 	.write = brl_write,
 	.send_cmd = brl_send_cmd,
+	.set_coor_mode = brl_set_coor_mode,
 	.send_config = brl_send_config,
 	.read_config = brl_read_config,
 	.read_version = brl_read_version,

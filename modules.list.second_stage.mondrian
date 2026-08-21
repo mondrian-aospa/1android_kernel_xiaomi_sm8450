@@ -1,4 +1,4 @@
 wl2866d.ko
-gt9916.ko
+goodix_core.ko
 goodix_fod.ko
 qcom-hv-haptics.ko

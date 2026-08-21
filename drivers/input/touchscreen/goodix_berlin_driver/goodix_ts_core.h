@@ -291,6 +291,7 @@ struct goodix_ts_board_data {
 	bool invert_xy;
 
 	bool pen_enable;
+	bool support_thp_fw;
 	char fw_name[GOODIX_MAX_STR_LABLE_LEN];
 	char cfg_bin_name[GOODIX_MAX_STR_LABLE_LEN];
 };
@@ -429,6 +430,7 @@ struct goodix_ts_hw_ops {
 		     unsigned char *data, unsigned int len);
 	int (*send_cmd)(struct goodix_ts_core *cd,
 			struct goodix_ts_cmd *cmd);
+	int (*set_coor_mode)(struct goodix_ts_core *cd);
 	int (*send_config)(struct goodix_ts_core *cd,
 			u8 *config, int len);
 	int (*read_config)(struct goodix_ts_core *cd,
