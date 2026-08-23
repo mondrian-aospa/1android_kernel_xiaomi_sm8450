@@ -309,14 +309,40 @@ int brl_resume(struct goodix_ts_core *cd)
 #define GOODIX_GESTURE_CMD		0xA6
 int brl_gesture(struct goodix_ts_core *cd, int gesture_type)
 {
-	struct goodix_ts_cmd cmd;
+	struct goodix_ts_cmd cmd = { 0 };
 
 	if (cd->bus->ic_type == IC_TYPE_BERLIN_A)
 		cmd.cmd = GOODIX_GESTURE_CMD_BA;
 	else
 		cmd.cmd = GOODIX_GESTURE_CMD;
-	cmd.len = 5;
-	cmd.data[0] = gesture_type;
+
+	if (cd->board_data.support_thp_fw) {
+		/*
+		 * Xiaomi's THP firmware expects a different payload from stock
+		 * Goodix: two data bytes, where bit 7 of the first *disables*
+		 * double tap. Single tap and FOD are not encoded here at all --
+		 * the IC reports them whenever it is in gesture mode, and
+		 * gsx_gesture_ist() filters on cd->gesture_type.
+		 *
+		 * Mirrors brl_gesture() in
+		 * drivers/input/touchscreen/goodix_9916, which is the driver
+		 * Xiaomi ships for this panel and this firmware image. Sending
+		 * the stock one-byte form instead risks the controller never
+		 * entering low-power gesture scan, in which case nothing is
+		 * ever reported and every wake gesture stays dead.
+		 */
+		cmd.len = 6;
+		cmd.data[0] = (cd->gesture_type & GESTURE_DOUBLE_TAP) ? 0x00
+								      : 0x80;
+		cmd.data[1] = 0x10;
+	} else {
+		cmd.len = 5;
+		cmd.data[0] = gesture_type;
+	}
+
+	ts_info("gesture cmd len:%d data:0x%02X 0x%02X (type 0x%02X)", cmd.len,
+		cmd.data[0], cmd.data[1], cd->gesture_type);
+
 	if (cd->hw_ops->send_cmd(cd, &cmd))
 		ts_err("failed send gesture cmd");
 
