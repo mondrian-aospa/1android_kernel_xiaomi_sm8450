@@ -1,3 +1,5 @@
+ccflags-y += -DGOODIX_SUSPEND_GESTURE_ENABLE
+
 obj-$(CONFIG_TOUCHSCREEN_GOODIX_BRL) += goodix_core.o
 goodix_core-y := \
 				goodix_brl_i2c.o \
@@ -8,5 +10,6 @@ goodix_core-y := \
 				goodix_ts_utils.o \
 				goodix_brl_fwupdate.o \
 				goodix_ts_gesture.o \
+				goodix_xiaomi_touch.o \
 				goodix_ts_inspect.o \
 				goodix_ts_tools.o

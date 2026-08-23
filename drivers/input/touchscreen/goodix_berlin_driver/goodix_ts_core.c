@@ -1734,6 +1734,9 @@ static void goodix_ts_release_connects(struct goodix_ts_core *core_data)
 	input_sync(input_dev);
 
 	mutex_unlock(&input_dev->mutex);
+
+	/* runs at the end of both suspend and resume */
+	goodix_xiaomi_touch_clear_fod();
 }
 
 /**
@@ -1751,6 +1754,15 @@ static int goodix_ts_suspend(struct goodix_ts_core *core_data)
 		return 0;
 
 	ts_info("Suspend start");
+	/*
+	 * Held across the whole transition so the xiaomi_touch glue cannot
+	 * arm a gesture in the window between suspended=1 and the gesture
+	 * module's before_suspend(). Without this, an arm landing in that
+	 * window either drives the SPI bus concurrently with before_suspend()
+	 * or is silently lost, and screen-off UDFPS is exactly the case that
+	 * arms right at the screen-off transition.
+	 */
+	mutex_lock(&core_data->gesture_mutex);
 	atomic_set(&core_data->suspended, 1);
 	/* disable irq */
 	hw_ops->irq_enable(core_data, false);
@@ -1805,6 +1817,7 @@ static int goodix_ts_suspend(struct goodix_ts_core *core_data)
 
 out:
 	goodix_ts_release_connects(core_data);
+	mutex_unlock(&core_data->gesture_mutex);
 	ts_info("Suspend end");
 	return 0;
 }
@@ -1824,6 +1837,7 @@ static int goodix_ts_resume(struct goodix_ts_core *core_data)
 		return 0;
 
 	ts_info("Resume start");
+	mutex_lock(&core_data->gesture_mutex);
 	atomic_set(&core_data->suspended, 0);
 	hw_ops->irq_enable(core_data, false);
 
@@ -1873,6 +1887,7 @@ out:
 	goodix_ts_blocking_notify(NOTIFY_RESUME, NULL);
 	if (core_data->board_data.support_thp_fw)
 		core_data->hw_ops->set_coor_mode(core_data);
+	mutex_unlock(&core_data->gesture_mutex);
 	ts_info("Resume end");
 	return 0;
 }
@@ -2009,6 +2024,30 @@ static int goodix_generic_noti_callback(struct notifier_block *self,
 	return 0;
 }
 
+/**
+ * goodix_ts_set_irq_wake - balanced enable_irq_wake()/disable_irq_wake()
+ *
+ * The gesture arm/disarm path (xiaomi_touch glue) and the suspend/resume
+ * path can both want to change the wake state, and they can interleave:
+ * a gesture may be armed after the panel already blanked, or disarmed
+ * before it unblanks. enable_irq_wake() is refcounted, so an unpaired
+ * call leaves the IRQ wake count skewed forever. Funnel every change
+ * through here.
+ */
+void goodix_ts_set_irq_wake(struct goodix_ts_core *cd, bool enable)
+{
+	if (cd->irq_wake_enabled == enable)
+		return;
+
+	if (enable)
+		enable_irq_wake(cd->irq);
+	else
+		disable_irq_wake(cd->irq);
+
+	cd->irq_wake_enabled = enable;
+	ts_debug("irq wake %s", enable ? "enabled" : "disabled");
+}
+
 int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 {
 	int ret;
@@ -2053,6 +2092,10 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 #ifdef GOODIX_SUSPEND_GESTURE_ENABLE
 	/* gesture init */
 	gesture_module_init();
+
+	/* expose the gesture modes over /dev/xiaomi-touch and
+	 * /sys/class/touch/touch_dev/, which is what sensors.xiaomi uses */
+	goodix_xiaomi_touch_init(cd);
 #endif
 
 	/* inspect init */
@@ -2334,6 +2377,7 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	/* touch core layer is a platform driver */
 	core_data->pdev = pdev;
 	core_data->bus = bus_interface;
+	mutex_init(&core_data->gesture_mutex);
 	platform_set_drvdata(pdev, core_data);
 
 	/* get GPIO resource */
@@ -2390,6 +2434,7 @@ static int goodix_ts_remove(struct platform_device *pdev)
 
 	if (core_data->init_stage >= CORE_INIT_STAGE2) {
 	#ifdef GOODIX_SUSPEND_GESTURE_ENABLE
+		goodix_xiaomi_touch_exit();
 		gesture_module_exit();
 	#endif
 		inspect_module_exit();

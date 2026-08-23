@@ -299,14 +299,25 @@ static long xiaomi_touch_dev_ioctl(struct file *file, unsigned int cmd,
 	       touch_data->thp_cmd_size * sizeof(int));
 	sysfs_notify(&xiaomi_touch_device->dev->kobj, NULL,
 		     "touch_thp_cmd_ready");
+	spin_lock(&touch_pdata->param_lock);
 	if ((touch_pdata->param_head == touch_pdata->param_tail) &&
 	    (touch_pdata->param_flag == 1)) {
-		pr_err("[MITouch-ERR][%s:%d] %s param buffer is full!\n\n",
-		       __func__, __LINE__, __func__);
-		mutex_unlock(&dev->mutex);
-		return -ENFILE;
+		/*
+		 * This ring is only drained by a read of touch_thp_cmd, i.e.
+		 * by the Xiaomi THP daemon. Builds that do not ship it fill
+		 * the ring once and then fail every later mode write with
+		 * -ENFILE, spamming the log at KERN_ERR for the rest of the
+		 * boot. The mode itself has already been applied through
+		 * setModeValue() above, so the queued copy is only of interest
+		 * to a consumer that may never exist: drop the oldest entry
+		 * and let the newest command win.
+		 */
+		if (touch_pdata->param_head == PARAM_BUF_NUM - 1)
+			touch_pdata->param_head = 0;
+		else
+			touch_pdata->param_head++;
+		touch_pdata->param_flag = 0;
 	}
-	spin_lock(&touch_pdata->param_lock);
 	BUG_ON(touch_pdata->param_tail >= PARAM_BUF_NUM);
 	touch_pdata->touch_cmd_data[touch_pdata->param_tail]->thp_cmd_size =
 		touch_data->thp_cmd_size;
@@ -869,7 +880,9 @@ static ssize_t thp_cmd_status_show(struct device *dev,
 	       touch_pdata->touch_cmd_data[touch_pdata->param_head]
 			       ->thp_cmd_size *
 		       sizeof(int));
-	if (touch_pdata->param_head != PARAM_BUF_NUM - 1)
+	if (touch_pdata->param_head == PARAM_BUF_NUM - 1)
+		touch_pdata->param_head = 0;
+	else
 		touch_pdata->param_head++;
 	if (touch_pdata->param_head == touch_pdata->param_tail)
 		touch_pdata->param_flag = 0;

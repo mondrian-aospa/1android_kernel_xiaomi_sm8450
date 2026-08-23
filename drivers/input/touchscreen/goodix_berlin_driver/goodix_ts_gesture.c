@@ -27,6 +27,7 @@
 #include <linux/atomic.h>
 #include <linux/input/mt.h>
 #include "goodix_ts_core.h"
+#include "../xiaomi/xiaomi_touch.h"
 
 
 #define GOODIX_GESTURE_DOUBLE_TAP		0xCC
@@ -258,12 +259,15 @@ static int gsx_gesture_ist(struct goodix_ts_core *cd,
 	case GOODIX_GESTURE_SINGLE_TAP:
 		if (cd->gesture_type & GESTURE_SINGLE_TAP) {
 			ts_info("get SINGLE-TAP gesture");
-			input_report_key(cd->input_dev, KEY_WAKEUP, 1);
-			// input_report_key(cd->input_dev, KEY_GOTO, 1);
-			input_sync(cd->input_dev);
-			input_report_key(cd->input_dev, KEY_WAKEUP, 0);
-			// input_report_key(cd->input_dev, KEY_GOTO, 0);
-			input_sync(cd->input_dev);
+			/*
+			 * Route through xiaomi_touch rather than reporting
+			 * KEY_WAKEUP: sensors.xiaomi polls
+			 * gesture_single_tap_state and feeds
+			 * co.aospa.sensor.single_tap, which is what
+			 * config_dozeTapSensorType points SystemUI at.
+			 * Reporting a key as well would wake the device twice.
+			 */
+			notify_gesture_single_tap();
 		} else {
 			ts_debug("not enable SINGLE-TAP");
 		}
@@ -271,10 +275,8 @@ static int gsx_gesture_ist(struct goodix_ts_core *cd,
 	case GOODIX_GESTURE_DOUBLE_TAP:
 		if (cd->gesture_type & GESTURE_DOUBLE_TAP) {
 			ts_info("get DOUBLE-TAP gesture");
-			input_report_key(cd->input_dev, KEY_WAKEUP, 1);
-			input_sync(cd->input_dev);
-			input_report_key(cd->input_dev, KEY_WAKEUP, 0);
-			input_sync(cd->input_dev);
+			/* see SINGLE-TAP above: co.aospa.sensor.double_tap */
+			notify_gesture_double_tap();
 		} else {
 			ts_debug("not enable DOUBLE-TAP");
 		}
@@ -286,6 +288,15 @@ static int gsx_gesture_ist(struct goodix_ts_core *cd,
 			fody = le16_to_cpup((__le16 *)(gs_event.gesture_data + 2));
 			overlay_area = gs_event.gesture_data[4];
 			ts_debug("fodx:%d fody:%d overlay_area:%d", fodx, fody, overlay_area);
+			/*
+			 * Drives co.aospa.sensor.udfps via
+			 * /sys/devices/virtual/touch/touch_dev/fod_press_status,
+			 * which SystemUI listens to through
+			 * config_dozeUdfpsLongPressSensorType. The MT report
+			 * below is kept for the case where the touch mapper is
+			 * live during doze (touch.enableForInactiveViewport).
+			 */
+			update_fod_press_status(1);
 			input_report_key(cd->input_dev, BTN_TOUCH, 1);
 			input_mt_slot(cd->input_dev, 0);
 			input_mt_report_slot_state(cd->input_dev, MT_TOOL_FINGER, 1);
@@ -303,6 +314,7 @@ static int gsx_gesture_ist(struct goodix_ts_core *cd,
 			fodx = le16_to_cpup((__le16 *)gs_event.gesture_data);
 			fody = le16_to_cpup((__le16 *)(gs_event.gesture_data + 2));
 			overlay_area = gs_event.gesture_data[4];
+			update_fod_press_status(0);
 			input_report_key(cd->input_dev, BTN_TOUCH, 0);
 			input_mt_slot(cd->input_dev, 0);
 			input_mt_report_slot_state(cd->input_dev,
@@ -347,7 +359,7 @@ static int gsx_gesture_before_suspend(struct goodix_ts_core *cd,
 		ts_info("enter gesture mode, type[0x%02X]", cd->gesture_type);
 
 	hw_ops->irq_enable(cd, true);
-	enable_irq_wake(cd->irq);
+	goodix_ts_set_irq_wake(cd, true);
 
 	return EVT_CANCEL_SUSPEND;
 }
@@ -357,10 +369,17 @@ static int gsx_gesture_before_resume(struct goodix_ts_core *cd,
 {
 	const struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
 
+	/*
+	 * Always drop the wake reference, even when nothing is armed any
+	 * more: the gesture may have been disarmed after suspend by the
+	 * xiaomi_touch glue, and goodix_ts_set_irq_wake() is a no-op when
+	 * it was never taken.
+	 */
+	goodix_ts_set_irq_wake(cd, false);
+
 	if (cd->gesture_type == 0)
 		return EVT_CONTINUE;
 
-	disable_irq_wake(cd->irq);
 	hw_ops->reset(cd, GOODIX_NORMAL_RESET_DELAY_MS);
 
 	return EVT_CANCEL_RESUME;
