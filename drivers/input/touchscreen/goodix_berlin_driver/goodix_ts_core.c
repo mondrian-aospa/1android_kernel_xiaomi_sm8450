@@ -41,16 +41,25 @@ static void goodix_register_for_panel_events(struct device_node *dp,
 {
 	void *cookie;
 
+	/*
+	 * goodix_check_dt() returns 0 without setting active_panel when the
+	 * node carries no "panel" phandle at all, so this can be reached with
+	 * nothing to subscribe to. Say so rather than passing NULL down.
+	 */
+	if (!active_panel) {
+		ts_err("no active panel, wake gestures will not work");
+		return;
+	}
+
 	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
 			PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH, active_panel,
 			&goodix_panel_notifier_callback, cd);
 	if (!cookie) {
-		pr_err("Failed to register for panel events\n");
+		ts_err("failed to register for panel events");
 		return;
 	}
 
-	ts_debug("registered for panel notifications panel: 0x%x\n",
-			active_panel);
+	ts_info("registered for panel notifications");
 
 	cd->notifier_cookie = cookie;
 }
@@ -2082,7 +2091,22 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 	ts_info("success register irq");
 
 #if defined(CONFIG_DRM)
-	if (cd->touch_environment && !strcmp(cd->touch_environment, "pvm"))
+	/*
+	 * qcom,touch-environment only exists on the QRD/IDP reference boards
+	 * that split touch between the primary and the trusted VM. No Xiaomi
+	 * device tree carries it, so gating registration on == "pvm" left
+	 * mondrian with no panel blank/unblank callback at all:
+	 * goodix_ts_suspend()/goodix_ts_resume() never ran, cd->suspended
+	 * stayed 0, the gesture module's before_suspend() never fired and
+	 * hw_ops->gesture() was never sent -- so screen-off UDFPS, single tap
+	 * and double tap could not work no matter what userspace armed.
+	 *
+	 * On a board with no VM split the absent property means "this is the
+	 * primary VM", so treat it that way and only skip the trusted VM.
+	 */
+	if (cd->touch_environment && !strcmp(cd->touch_environment, "tvm"))
+		ts_info("tvm touch environment, skipping panel notifier");
+	else
 		goodix_register_for_panel_events(cd->bus->dev->of_node, cd);
 
 #elif defined(CONFIG_FB)

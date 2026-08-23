@@ -316,32 +316,27 @@ int brl_gesture(struct goodix_ts_core *cd, int gesture_type)
 	else
 		cmd.cmd = GOODIX_GESTURE_CMD;
 
-	if (cd->board_data.support_thp_fw) {
-		/*
-		 * Xiaomi's THP firmware expects a different payload from stock
-		 * Goodix: two data bytes, where bit 7 of the first *disables*
-		 * double tap. Single tap and FOD are not encoded here at all --
-		 * the IC reports them whenever it is in gesture mode, and
-		 * gsx_gesture_ist() filters on cd->gesture_type.
-		 *
-		 * Mirrors brl_gesture() in
-		 * drivers/input/touchscreen/goodix_9916, which is the driver
-		 * Xiaomi ships for this panel and this firmware image. Sending
-		 * the stock one-byte form instead risks the controller never
-		 * entering low-power gesture scan, in which case nothing is
-		 * ever reported and every wake gesture stays dead.
-		 */
-		cmd.len = 6;
-		cmd.data[0] = (cd->gesture_type & GESTURE_DOUBLE_TAP) ? 0x00
-								      : 0x80;
-		cmd.data[1] = 0x10;
-	} else {
-		cmd.len = 5;
-		cmd.data[0] = gesture_type;
-	}
+	/*
+	 * One data byte per tap gesture. FOD is not encoded here -- the IC
+	 * reports it whenever it is in gesture mode, and gsx_gesture_ist()
+	 * filters on cd->gesture_type.
+	 *
+	 * This is the encoding LineageOS' goodix_berlin_driver sends, which is
+	 * the driver this panel and firmware run there. An earlier version of
+	 * this used the goodix_9916 form (data[0] 0x80/0x00, data[1] 0x10),
+	 * reasoned from the driver mondrian used to run before the move to
+	 * CONFIG_TOUCHSCREEN_GOODIX_BRL -- same opcode and length, but the two
+	 * data bytes mean something else entirely, so the IC never armed.
+	 *
+	 * Read cd->gesture_type rather than the argument: every caller in this
+	 * driver passes 0.
+	 */
+	cmd.len = 6;
+	cmd.data[0] = (cd->gesture_type & GESTURE_SINGLE_TAP) ? 1 : 0;
+	cmd.data[1] = (cd->gesture_type & GESTURE_DOUBLE_TAP) ? 1 : 0;
 
-	ts_info("gesture cmd len:%d data:0x%02X 0x%02X (type 0x%02X)", cmd.len,
-		cmd.data[0], cmd.data[1], cd->gesture_type);
+	ts_info("gesture cmd data:0x%02X 0x%02X (type 0x%02X)", cmd.data[0],
+		cmd.data[1], cd->gesture_type);
 
 	if (cd->hw_ops->send_cmd(cd, &cmd))
 		ts_err("failed send gesture cmd");
