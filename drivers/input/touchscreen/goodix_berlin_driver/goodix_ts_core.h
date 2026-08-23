@@ -498,6 +498,12 @@ struct goodix_ts_core {
 
 	atomic_t irq_enabled;
 	atomic_t suspended;
+	/* tracks enable_irq_wake()/disable_irq_wake() so the gesture arm and
+	 * disarm paths cannot unbalance the wake refcount */
+	bool irq_wake_enabled;
+	/* serialises gesture arming between the xiaomi_touch glue and the
+	 * suspend/resume paths */
+	struct mutex gesture_mutex;
 	/* when this flag is true, driver should not clean the sync flag */
 	bool tools_ctrl_sync;
 
@@ -680,8 +686,23 @@ void goodix_fw_update_uninit(void);
 int goodix_do_fw_update(struct goodix_ic_config *ic_config, int mode);
 
 int goodix_get_ic_type(struct device_node *node);
+int goodix_ts_power_on(struct goodix_ts_core *cd);
+int goodix_ts_power_off(struct goodix_ts_core *cd);
+void goodix_ts_set_irq_wake(struct goodix_ts_core *cd, bool enable);
 int gesture_module_init(void);
 void gesture_module_exit(void);
+#ifdef GOODIX_SUSPEND_GESTURE_ENABLE
+int goodix_xiaomi_touch_init(struct goodix_ts_core *cd);
+void goodix_xiaomi_touch_clear_fod(void);
+void goodix_xiaomi_touch_exit(void);
+#else
+static inline int goodix_xiaomi_touch_init(struct goodix_ts_core *cd)
+{
+	return 0;
+}
+static inline void goodix_xiaomi_touch_clear_fod(void) {}
+static inline void goodix_xiaomi_touch_exit(void) {}
+#endif
 int inspect_module_init(void);
 void inspect_module_exit(void);
 int goodix_tools_init(void);

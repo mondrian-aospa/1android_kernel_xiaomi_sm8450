@@ -264,14 +264,28 @@ int brl_suspend(struct goodix_ts_core *cd)
 #ifdef GOODIX_SUSPEND_GESTURE_ENABLE
 	struct goodix_ts_cmd sleep_cmd;
 
-	sleep_cmd.cmd = GOODIX_SLEEP_CMD;
-	sleep_cmd.len = 4;
-	if (cd->hw_ops->send_cmd(cd, &sleep_cmd))
-		ts_err("failed send sleep cmd");
-#else
-	if (cd->hw_ops->power_on(cd, 0))
-		ts_err("failed power off");
+	/*
+	 * Keep the controller powered and merely asleep only while a wake
+	 * gesture is armed, so it can still scan for taps / FOD presses.
+	 * With nothing armed there is nothing to detect, so cut the rails
+	 * as before and keep standby drain unchanged.
+	 */
+	if (cd->gesture_type) {
+		sleep_cmd.cmd = GOODIX_SLEEP_CMD;
+		sleep_cmd.len = 4;
+		if (cd->hw_ops->send_cmd(cd, &sleep_cmd))
+			ts_err("failed send sleep cmd");
+		return 0;
+	}
 #endif
+	/*
+	 * Go through the guarded wrapper rather than hw_ops->power_on() so
+	 * cd->power_on stays accurate. The gesture arm path needs to know
+	 * whether the rails are actually up, and iovdd is a refcounted
+	 * regulator on this board, so an unguarded double enable/disable
+	 * would skew its use count.
+	 */
+	goodix_ts_power_off(cd);
 	return 0;
 }
 
@@ -280,12 +294,13 @@ int brl_resume(struct goodix_ts_core *cd)
 	int ret = 0;
 
 #ifdef GOODIX_SUSPEND_GESTURE_ENABLE
-	ret = cd->hw_ops->reset(cd, GOODIX_NORMAL_RESET_DELAY_MS);
-#else
-	ret = cd->hw_ops->power_on(cd, 1);
+	/* Mirror brl_suspend(): the rails were never cut, just reset. */
+	if (cd->gesture_type)
+		return cd->hw_ops->reset(cd, GOODIX_NORMAL_RESET_DELAY_MS);
+#endif
+	ret = goodix_ts_power_on(cd);
 	if (ret)
 		ts_err("failed power on");
-#endif
 
 	return ret;
 }
