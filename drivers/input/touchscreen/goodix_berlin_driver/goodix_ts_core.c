@@ -1735,7 +1735,7 @@ static void goodix_ts_release_connects(struct goodix_ts_core *core_data)
 
 	mutex_unlock(&input_dev->mutex);
 
-	/* runs at the end of both suspend and resume */
+	/* suspend only -- goodix_ts_suspend() is this function's sole caller */
 	goodix_xiaomi_touch_clear_fod();
 }
 
@@ -1887,6 +1887,13 @@ out:
 	goodix_ts_blocking_notify(NOTIFY_RESUME, NULL);
 	if (core_data->board_data.support_thp_fw)
 		core_data->hw_ops->set_coor_mode(core_data);
+	/*
+	 * Clear the FOD press latch here too. goodix_ts_release_connects()
+	 * covers the suspend side, but the reset this path performs can swallow
+	 * a FOD-UP, and update_fod_press_status() only notifies on a change --
+	 * a stuck 1 would then block every press until the next screen-off.
+	 */
+	goodix_xiaomi_touch_clear_fod();
 	mutex_unlock(&core_data->gesture_mutex);
 	ts_info("Resume end");
 	return 0;
