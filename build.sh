@@ -242,6 +242,15 @@ $DO_CLEAN && {
 
 mkdir -p out
 
+# A fresh clone has no KernelSU/ content, which leaves drivers/kernelsu
+# dangling and makes drivers/Kconfig fail before a config can be generated.
+# Only fetch when it is actually missing, so a checkout ahead of the recorded
+# gitlink is never rolled back.
+if [ ! -f KernelSU/kernel/Kconfig ]; then
+    echo_i "Fetching KernelSU submodule..."
+    git submodule update --init KernelSU || exit $?
+fi
+
 echo_i "Generating config..."
 m $DEFCONFIG
 m ./scripts/kconfig/merge_config.sh $DEFCONFIGS vendor/${TARGET}_GKI.config
@@ -254,6 +263,17 @@ $NO_LTO && {
         -d LTO_CLANG_FULL -e LTO_NONE
     echo_i "Disabled LTO!"
 }
+
+# Guard against silently shipping a kernel with no root. A renamed or dropped
+# symbol would otherwise just vanish during defconfig generation and produce a
+# clean, working, root-less build with no indication anything went wrong.
+for sym in CONFIG_KSU CONFIG_KSU_SUSFS; do
+    grep -q "^${sym}=y" out/.config || {
+        echo_e "$sym is not enabled in out/.config, refusing to build a kernel without KernelSU!"
+        exit 1
+    }
+done
+echo_i "KernelSU: $(git -C KernelSU describe --tags 2>/dev/null), SuSFS $(sed -n 's/^#define SUSFS_VERSION "\(.*\)"/\1/p' include/linux/susfs.h)"
 
 $ONLY_CONFIG && exit
 
