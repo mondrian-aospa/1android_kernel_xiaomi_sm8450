@@ -2204,9 +2204,6 @@ static void check_exports(struct module *mod)
 {
 	struct symbol *s, *exp;
 
-	if (strstr(mod->name, "kernelsu"))
-		return;
-
 	for (s = mod->unres; s; s = s->next) {
 		const char *basename;
 		exp = find_symbol(s->name);
