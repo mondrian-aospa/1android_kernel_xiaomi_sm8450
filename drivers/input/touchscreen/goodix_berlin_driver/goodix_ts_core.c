@@ -1930,12 +1930,18 @@ static void goodix_panel_notifier_callback(enum panel_event_notifier_tag tag,
 		break;
 
 	case DRM_PANEL_EVENT_BLANK:
+	case DRM_PANEL_EVENT_BLANK_LP:
+		/*
+		 * LP has to suspend the touch controller exactly like a full
+		 * blank does. With AOD enabled the panel drops to LP instead of
+		 * OFF, so handling only BLANK meant the driver was never told
+		 * the screen went off, gsx_gesture_before_suspend() never ran
+		 * and the IC was never armed -- making AOD and the wake
+		 * gestures mutually exclusive. LineageOS' goodix_berlin_driver
+		 * falls these two through together for the same reason.
+		 */
 		if (notification->notif_data.early_trigger)
 			goodix_ts_suspend(core_data);
-		break;
-
-	case DRM_PANEL_EVENT_BLANK_LP:
-		ts_debug("received lp event\n");
 		break;
 
 	case DRM_PANEL_EVENT_FPS_CHANGE:

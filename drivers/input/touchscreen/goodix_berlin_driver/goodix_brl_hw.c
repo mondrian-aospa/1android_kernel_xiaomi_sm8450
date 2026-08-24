@@ -317,23 +317,23 @@ int brl_gesture(struct goodix_ts_core *cd, int gesture_type)
 		cmd.cmd = GOODIX_GESTURE_CMD;
 
 	/*
-	 * One data byte per tap gesture. FOD is not encoded here -- the IC
-	 * reports it whenever it is in gesture mode, and gsx_gesture_ist()
-	 * filters on cd->gesture_type.
+	 * One data byte per tap gesture, taken from the argument. FOD is not
+	 * encoded here at all -- the IC reports 0x46/0x55 whenever it is in
+	 * gesture mode, and gsx_gesture_ist() filters on cd->gesture_type.
 	 *
-	 * This is the encoding LineageOS' goodix_berlin_driver sends, which is
-	 * the driver this panel and firmware run there. An earlier version of
-	 * this used the goodix_9916 form (data[0] 0x80/0x00, data[1] 0x10),
-	 * reasoned from the driver mondrian used to run before the move to
-	 * CONFIG_TOUCHSCREEN_GOODIX_BRL -- same opcode and length, but the two
-	 * data bytes mean something else entirely, so the IC never armed.
+	 * Byte for byte what LineageOS' goodix_berlin_driver sends, which is
+	 * the driver this panel and this firmware image run there. Every
+	 * caller in this driver passes 0, so this transmits {0x00, 0x00} --
+	 * that is the arming command, and it is enough on its own.
 	 *
-	 * Read cd->gesture_type rather than the argument: every caller in this
-	 * driver passes 0.
+	 * Do not "improve" this by substituting cd->gesture_type: that makes
+	 * the payload {1, 1} once userspace arms all three gestures, which is
+	 * not a combination LineageOS ever sends and whose meaning to the
+	 * firmware is unknown.
 	 */
 	cmd.len = 6;
-	cmd.data[0] = (cd->gesture_type & GESTURE_SINGLE_TAP) ? 1 : 0;
-	cmd.data[1] = (cd->gesture_type & GESTURE_DOUBLE_TAP) ? 1 : 0;
+	cmd.data[0] = (gesture_type >> 0) & 0x01;
+	cmd.data[1] = (gesture_type >> 1) & 0x01;
 
 	ts_info("gesture cmd data:0x%02X 0x%02X (type 0x%02X)", cmd.data[0],
 		cmd.data[1], cd->gesture_type);
